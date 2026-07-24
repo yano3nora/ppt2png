@@ -184,6 +184,7 @@ param(
     [ValidateNotNullOrEmpty()]
     [int[]] $Slides,
 
+    [Parameter(ParameterSetName = "ExplicitSize")]
     [switch] $AllowAspectRatioMismatch,
 
     [ValidateSet("Error", "Overwrite", "Skip")]
@@ -215,6 +216,11 @@ param(
 ```
 
 PowerShell の標準的な例外処理を維持しつつ、スクリプト直接実行時には終了コードを設定する。dot-source された場合に呼び出し元セッションを終了しないよう注意する。
+
+注記:
+
+- ParameterSet 不整合や `ValidateRange` 違反など、PowerShell のパラメーターバインド段階で失敗するエラーはスクリプト本体へ到達しないため、終了コードは 2 ではなく PowerShell 標準の 1 になる。スクリプト本体で検出する入力エラー (ファイル不存在、スライド番号超過、縦横比不一致など) が 2 を返す
+- パイプラインで複数ファイルを処理した場合、先行ファイルで書き出し成功があり後続で書き出し失敗が起きたときは、全体の終了コードを 6 (一部成功) とする
 
 ### PassThru output
 
@@ -274,17 +280,24 @@ slide-002.png
 
 `-ExistingFile` により制御する。
 
-- `Error` (デフォルト): 同名ファイルが 1 つでも存在する場合、PowerPoint を起動する前に終了する
+- `Error` (デフォルト): 同名ファイルが 1 つでも存在する場合、PowerPoint を起動する前に終了する。連番の桁数 (padding) は総スライド数が確定するまで不明のため、起動前チェックはパターン一致で行う: `-Slides` 指定時は該当スライド番号の `slide-NNN.png` のみ、未指定時は `slide-NNN.png` 形式すべてを競合とみなす
 - `Overwrite`: 既存ファイルを上書きする
 - `Skip`: 存在するファイルを処理対象から除外する。一部成功になる可能性があるため、スキップ件数を標準出力へ表示する
 
 ### PowerPoint automation
 
-必ず新しい COM Application を作成する。既存インスタンスを取得する `GetActiveObject` は使用しない。
+`GetActiveObject` は使用せず、`New-Object` で Application を取得する。
 
 ```powershell
 $powerPoint = New-Object -ComObject PowerPoint.Application
 ```
+
+ただし PowerPoint は single-instance (Multiuse) の COM サーバーであり、`New-Object` はユーザーが既に起動している PowerPoint と同じインスタンスを返し得る。誤ってユーザーのセッションを終了させないため、Application 取得前に既存 `POWERPNT` プロセスの有無を記録し、次のとおり動作する。
+
+- 既存プロセスなし (専有モード): 処理後に `Quit()` で終了する。ただし `Quit()` 直前に他の Presentation が開いていれば Quit をスキップする (検出後に PowerPoint が起動された競合への備え)
+- 既存プロセスあり (共有モード): 警告を表示して同一インスタンスを利用し、自身が開いた Presentation だけを閉じる。`Quit()` は呼ばず、変更した `AutomationSecurity` は元の値へ復元する
+
+プロセス検出は同一セッションの `POWERPNT` に限定する。生成プロセス ID の厳密な追跡は行わない (Future considerations)。
 
 Presentation は ReadOnly: true / Untitled: false / WithWindow: false で開く。名前付き引数は PowerShell の COM 呼び出しで扱いにくいため、位置引数を利用してよい。
 

@@ -53,7 +53,15 @@ Windows 標準環境で利用しやすく、追加ランタイムなしで COM A
 
 ### 4. COM lifecycle policy
 
-スクリプトは、自身が生成した PowerPoint Application インスタンスだけを終了する。既にユーザーが起動している PowerPoint へ接続してはならない。
+**前提: PowerPoint は single-instance (Multiuse) の COM サーバーである。** `New-Object -ComObject PowerPoint.Application` は新規プロセスを保証せず、ユーザーが既に起動している PowerPoint と同じインスタンスを返し得る。したがって「自分が生成したインスタンスだけを終了する」は、プロセス検出による共有判定とセットでなければ成立しない。
+
+スクリプトは PowerPoint Application 生成前に既存 POWERPNT プロセスの有無を記録し、次のとおり動作する。
+
+- 既存プロセスなし (専有モード): 処理後に `Quit()` で PowerPoint を終了する。ただし `Quit()` 直前に他の Presentation が開いていないことを確認し、開いていれば Quit しない (プロセス検出後に PowerPoint が起動された競合への備え。被害を「ユーザーの資料を閉じる」ではなく「プロセス残留」側に倒す)
+- 既存プロセスあり (共有モード): 警告を表示し、自身が開いた Presentation だけを閉じる。**`Quit()` は呼ばない**。変更した `AutomationSecurity` は元の値へ復元する
+- プロセス検出は同一セッションの POWERPNT に限定する (COM の接続先になり得ない別ユーザー / 別 RDP セッションのプロセスを除外)
+
+生成した PowerPoint プロセス ID の厳密な追跡・特定は行わない (Future considerations)。上記ガードで残る稀な競合 (起動直後で Presentation が 1 つも開いていない PowerPoint を閉じてしまう等) は許容する。
 
 処理は必ず `try/finally` 相当の構造で実装し、成功・失敗を問わず以下を実行する。
 

@@ -10,12 +10,10 @@
 4. ADR, SPEC の Open Questions と重複する項目は、決着時に ADR, SPEC 側も更新すること
 
 ## 初期リリースまでに必要
-- [ ] `Export-PptxPng.ps1` 本体実装 ([SPEC-0001](SPEC-0001-pptx-png-export.md) 準拠、codex exec と作業・レビュー分担)
-- [ ] Pester unit tests (`tests/Export-PptxPng.Tests.ps1`) — COM 非依存の純粋関数を対象
-- [ ] `LICENSE` (MIT) 追加
-- [ ] `examples/export-retina.ps1` 追加
+- [x] `Export-PptxPng.ps1` 本体実装 → [TASK-260723-implement-export-script](TASK-260723-implement-export-script.md) で完了
 - [ ] PSScriptAnalyzer 導入と設定 (mise.toml のタスク整備、powershell-core の tools 登録含む)
-- [ ] Windows 実機での受け入れテスト AT-001〜010 実施 (人間作業)
+- [ ] Windows 実機での受け入れテスト AT-001〜010 実施 (人間作業)。特に共有モード (PowerPoint 起動中の実行) は AT-008 で重点確認する
+- [ ] Windows PowerShell 5.1 実機での動作確認 (開発は pwsh 7 のみで検証済みのため)
 - [ ] 初回リリース: タグ作成 + GitHub Release 作成・asset 添付 (人間作業、手順は README の Deployment 参照)
 
 ## 将来候補 (SPEC-0001 Future considerations)
