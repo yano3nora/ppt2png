@@ -554,7 +554,9 @@ begin {
         Write-Verbose "Output directory: $outputDirectoryPath"
 
         if ($ExistingFilePolicy -eq 'Error') {
-            $conflicts = Get-ConflictingOutputFiles -OutputDirectoryPath $outputDirectoryPath -TargetSlides $Slides
+            # 関数の出力は列挙されるため 0 件で $null / 1 件でスカラーになる。
+            # StrictMode 下では $null.Count が throw するので @() で配列を保証する
+            $conflicts = @(Get-ConflictingOutputFiles -OutputDirectoryPath $outputDirectoryPath -TargetSlides $Slides)
             if ($conflicts.Count -gt 0) {
                 throw (New-ExportError -ExitCode $script:ExitCode.InvalidArgument -Message (
                     "Output file(s) already exist in {0} (e.g. {1}). Use -ExistingFile Overwrite or Skip." -f

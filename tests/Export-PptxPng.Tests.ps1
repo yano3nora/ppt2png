@@ -228,6 +228,74 @@ Describe 'Get-ConflictingOutputFiles' {
         $null = New-Item -ItemType File -Path (Join-Path $directory.FullName 'slide-102.png')
         @(Get-ConflictingOutputFiles -OutputDirectoryPath $directory.FullName -TargetSlides 12).Count | Should -Be 0
     }
+
+    Context '戻り値の配列アンロール (regression: 競合 0 件で StrictMode により .Count が throw した不具合)' {
+        # 関数内で return @(...) しても PowerShell は出力を列挙するため、
+        # 競合 0 件では呼び出し側に $null が届く。本体の StrictMode 2.0 下では
+        # $null.Count が throw するので、呼び出し側の @() ラップが必須という契約を固定する。
+        It '競合 0 件の戻り値は $null になる (関数内の @() は呼び出し側を守らない)' {
+            $directory = New-Item -ItemType Directory -Path (Join-Path $TestDrive 'unroll-empty')
+            $raw = Get-ConflictingOutputFiles -OutputDirectoryPath $directory.FullName
+            $null -eq $raw | Should -BeTrue
+        }
+
+        It '競合 1 件の戻り値は配列でなくスカラー (FileInfo 単体) になる' {
+            $directory = New-Item -ItemType Directory -Path (Join-Path $TestDrive 'unroll-single')
+            $null = New-Item -ItemType File -Path (Join-Path $directory.FullName 'slide-001.png')
+            $raw = Get-ConflictingOutputFiles -OutputDirectoryPath $directory.FullName
+            $raw -is [System.IO.FileInfo] | Should -BeTrue
+        }
+
+        It 'StrictMode 2.0 下でラップなしの .Count は throw する (@() ラップが必須な理由)' {
+            $directory = New-Item -ItemType Directory -Path (Join-Path $TestDrive 'unroll-strict')
+            Set-StrictMode -Version 2.0
+            $raw = Get-ConflictingOutputFiles -OutputDirectoryPath $directory.FullName
+            { $raw.Count } | Should -Throw
+        }
+
+        It 'StrictMode 2.0 下でも @() ラップすれば 0 件 / 1 件とも安全に数えられる' {
+            $emptyDir = New-Item -ItemType Directory -Path (Join-Path $TestDrive 'unroll-safe0')
+            $singleDir = New-Item -ItemType Directory -Path (Join-Path $TestDrive 'unroll-safe1')
+            $null = New-Item -ItemType File -Path (Join-Path $singleDir.FullName 'slide-001.png')
+            Set-StrictMode -Version 2.0
+            @(Get-ConflictingOutputFiles -OutputDirectoryPath $emptyDir.FullName).Count | Should -Be 0
+            $single = @(Get-ConflictingOutputFiles -OutputDirectoryPath $singleDir.FullName)
+            $single.Count | Should -Be 1
+            $single[0].Name | Should -Be 'slide-001.png'
+        }
+    }
+}
+
+Describe 'Invoke-Ppt2PngExport' {
+    Context '起動前検証 (COM 初期化手前まで)' {
+        It '競合 0 件 + StrictMode 2.0 でも .Count で落ちず COM 初期化まで到達する (regression)' {
+            # 本体の呼び出し箇所 (@() ラップ) を直接守るテスト。ラップを外すと
+            # COM 初期化前の $conflicts.Count で throw し、sentinel に到達しなくなる。
+            # COM は macOS に存在しないため、到達確認用の sentinel 例外へ差し替える
+            Mock New-PowerPointApplication { throw 'SENTINEL-COM-INIT-REACHED' }
+            $inputFile = New-Item -ItemType File -Path (Join-Path $TestDrive 'deck.pptx')
+            Set-StrictMode -Version 2.0
+            { Invoke-Ppt2PngExport -InputPath $inputFile.FullName -Mode Scale -ExistingFilePolicy Error } |
+                Should -Throw 'SENTINEL-COM-INIT-REACHED'
+        }
+
+        It '競合 1 件なら COM 初期化前に InvalidArgument (2) で失敗し、ファイル名を例示する' {
+            Mock New-PowerPointApplication { throw 'SENTINEL-COM-INIT-REACHED' }
+            $inputFile = New-Item -ItemType File -Path (Join-Path $TestDrive 'single.pptx')
+            $outputDir = New-Item -ItemType Directory -Path (Join-Path $TestDrive 'single-png')
+            $null = New-Item -ItemType File -Path (Join-Path $outputDir.FullName 'slide-001.png')
+            Set-StrictMode -Version 2.0
+            try {
+                Invoke-Ppt2PngExport -InputPath $inputFile.FullName -Mode Scale -ExistingFilePolicy Error
+                throw 'Expected an error but none was thrown.'
+            }
+            catch {
+                # 競合 1 件はスカラー化するため、修正前は .Count / [0].Name も壊れていた
+                $_.Exception.Message | Should -Match 'slide-001\.png'
+                $_.Exception.Data['Ppt2PngExitCode'] | Should -Be 2
+            }
+        }
+    }
 }
 
 Describe 'New-ExportError / Get-ExportErrorExitCode' {
